@@ -408,3 +408,18 @@ int ree_fs_get_ta_dirname(TEEC_UUID *p_uuid, char *buffer, uint32_t len)
 			p_uuid->clockSeqAndNode[6],
 			p_uuid->clockSeqAndNode[7]);
 }
+
+int ree_fs_get_obj_filename(void *file_id, uint32_t file_id_length,
+			    char *buffer, uint32_t len)
+{
+	char *p = buffer;
+	uint32_t i;
+
+	if (file_id == NULL || buffer == NULL)
+		return 0;
+
+	for (i = 0; i < file_id_length; i++)
+		p += snprintf(p, len, "%02X", ((uint8_t *)file_id)[i]);
+
+	return p-buffer;
+}

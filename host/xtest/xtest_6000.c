@@ -1465,10 +1465,48 @@ static int rename_data_dir(TEEC_UUID *old, TEEC_UUID *nw)
 		goto exit;
 	}
 	s = get_ta_storage_path(nw, npath, sizeof(npath));
+	if (s < 0 || s >= (int)sizeof(npath)) {
+		s = -1;
+		goto exit;
+	}
+	s = rename(opath, npath);
+exit:
+	if (s < 0)
+		fprintf(stderr, "Warning: could not rename %s -> %s\n", opath,
+			npath);
+	return s;
+}
+
+static int rename_file_dir(TEEC_UUID *p_uuid, char *old, uint32_t old_len,
+	char *new, uint32_t new_len)
+{
+	char opath[370]; /* REE_FS_NAME_MAX */
+	char npath[370];
+	int s, os, ns;
+
+	s = get_ta_storage_path(p_uuid, opath, sizeof(opath));
 	if (s < 0 || s >= (int)sizeof(opath)) {
 		s = -1;
 		goto exit;
 	}
+
+	opath[s++] = '/';
+	memcpy(npath, opath,  sizeof(opath));
+
+	os = ree_fs_get_obj_filename(old, old_len, opath + s,
+		sizeof(opath) - s);
+	if (os < 0 || os >= (int)sizeof(opath)) {
+		s = -1;
+		goto exit;
+	}
+
+	ns = ree_fs_get_obj_filename(new, new_len, npath + s,
+		sizeof(npath) - s);
+	if (ns < 0 || ns >= (int)sizeof(npath)) {
+		s = -1;
+		goto exit;
+	}
+
 	s = rename(opath, npath);
 exit:
 	if (s < 0)
@@ -1652,6 +1690,53 @@ static void xtest_tee_test_6016_single(ADBG_Case_t *c, uint32_t storage_id)
 
 DEFINE_TEST_MULTIPLE_STORAGE_IDS(xtest_tee_test_6016)
 
+/* only test TEE_STORAGE_PRIVATE_REE */
+static void xtest_tee_test_6017(ADBG_Case_t *c)
+{
+	TEEC_Session sess;
+	uint32_t orig;
+	uint32_t obj;
+	TEEC_UUID uuid = TA_STORAGE_UUID;
+
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		xtest_teec_open_session(&sess, &storage_ta_uuid, NULL, &orig)))
+		return;
+
+	/* Create file #1 */
+	if (!ADBG_EXPECT_TEEC_SUCCESS(c,
+		fs_create(&sess, file_01, sizeof(file_01),
+			  TEE_DATA_FLAG_ACCESS_WRITE |
+			  TEE_DATA_FLAG_ACCESS_READ |
+			  TEE_DATA_FLAG_ACCESS_WRITE_META, 0, data_00,
+			  sizeof(data_00), &obj, TEE_STORAGE_PRIVATE_REE)))
+		goto exit;
+
+	/*
+	 * Rename file #1 to #2 in REE. This attack should be
+	 * detected by the TEE.
+	 */
+	if (rename_file_dir(&uuid, (char *)file_01, sizeof(file_01),
+		(char *)file_02, sizeof(file_02)) < 0)
+		goto clean;
+
+	/* Try to open file #2 */
+	ADBG_EXPECT_TEEC_RESULT(c, TEE_ERROR_CORRUPT_OBJECT,
+		fs_open(&sess, file_02, sizeof(file_02),
+			TEE_DATA_FLAG_ACCESS_READ, &obj,
+			TEE_STORAGE_PRIVATE_REE));
+	/*
+	 * At this point, the TEE is expected to have removed the
+	 * corrupt object, so there is no need to try and restore the
+	 * directory name.
+	 */
+	goto exit;
+
+clean:
+	ADBG_EXPECT_TEEC_SUCCESS(c, fs_unlink(&sess, obj));
+
+exit:
+	TEEC_CloseSession(&sess);
+}
 
 ADBG_CASE_DEFINE(
 	XTEST_TEE_6001, xtest_tee_test_6001,
@@ -1841,6 +1926,18 @@ ADBG_CASE_DEFINE(
 	"Storage concurency",
 	/* Short description */
 	"Multiple thread operate secure storage",
+	/* Requirement IDs */
+	"",
+	/* How to implement */
+	""
+);
+
+ADBG_CASE_DEFINE(
+	XTEST_TEE_6017, xtest_tee_test_6017,
+	/* Title */
+	"Secure storage file isolation",
+	/* Short description */
+	"Create file #1. Rename #1 to #2 in REE. Open file #2 should fail.",
 	/* Requirement IDs */
 	"",
 	/* How to implement */

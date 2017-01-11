@@ -326,10 +326,19 @@ static TEEC_Result obj_corrupt(TEEC_UUID *p_uuid, void *file_id,
 			real_offset -= num_corrupt_bytes;
 		} else if (offset == CORRUPT_FILE_RAND_BYTE) {
 			srand(time(NULL));
-			if (file_type == META_FILE)
+			if (file_type == META_FILE) {
 				real_offset += rand() % (meta_info_size - 1);
-			else
+				real_offset = (real_offset >
+					sizeof(struct meta_header) ?
+					real_offset :
+					sizeof(struct meta_header));
+			} else {
 				real_offset += rand() % (block_size - 1);
+				real_offset = (real_offset >
+					sizeof(struct block_header) ?
+					real_offset :
+					sizeof(struct block_header));
+			}
 			num_corrupt_bytes = 1;
 		} else if (offset != CORRUPT_FILE_FIRST_BYTE) {
 			real_offset += offset;
